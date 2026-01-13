@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Identique) ---
 BENCHMARK_TICKER = "CW8.PA" 
 CATALOGUE_ACHAT = {
     "MSCI World (CW8)": "CW8.PA", "S&P 500": "^GSPC", "CAC 40": "^FCHI", "Nasdaq 100": "^IXIC",
@@ -26,30 +26,35 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def charger_donnees_gsheet(user):
     try:
+        # Lecture de la feuille "Donnees" (ttl=0 pour avoir les données réelles)
         df = conn.read(worksheet="Donnees", ttl=0)
         user_row = df[df['username'] == user.lower()]
         if not user_row.empty:
             data = json.loads(user_row.iloc[0]['json_data'])
             return data.get("portefeuille", {}), data.get("ventes", [])
-    except Exception:
+    except Exception as e:
         pass
     return {}, []
 
 def sauvegarder_donnees_gsheet(user, portefeuille, ventes):
     try:
+        # 1. Lire les données existantes pour ne pas écraser les autres utilisateurs
         try:
             df = conn.read(worksheet="Donnees", ttl=0)
         except:
             df = pd.DataFrame(columns=["username", "json_data"])
-        
+
+        # 2. Préparer le JSON
         new_json = json.dumps({"portefeuille": portefeuille, "ventes": ventes})
         
+        # 3. Mise à jour ou ajout
         if user.lower() in df['username'].values:
             df.loc[df['username'] == user.lower(), 'json_data'] = new_json
         else:
             new_line = pd.DataFrame([{"username": user.lower(), "json_data": new_json}])
             df = pd.concat([df, new_line], ignore_index=True)
         
+        # 4. Envoi vers Google Sheets
         conn.update(worksheet="Donnees", data=df)
     except Exception as e:
         st.error(f"Erreur de sauvegarde : {e}")
@@ -58,40 +63,23 @@ def sauvegarder_donnees_gsheet(user, portefeuille, ventes):
 st.set_page_config(page_title="Portfolio Tracker Pro", layout="wide")
 
 if 'current_user' not in st.session_state:
-    st.session_state.current_user = None
-    st.session_state.portefeuille = {}
-    st.session_state.ventes = []
+    st.session_state.current_user = "Invite"
+    p, v = charger_donnees_gsheet("Invite")
+    st.session_state.portefeuille, st.session_state.ventes = p, v
 
-# --- ÉCRAN DE CONNEXION OBLIGATOIRE ---
-if st.session_state.current_user is None:
-    st.title("🔐 Accès au Portfolio")
-    st.write("Veuillez entrer votre identifiant pour charger vos positions.")
-    
-    with st.form("login_form"):
-        nom_saisi = st.text_input("Identifiant / Prénom :")
-        submit = st.form_submit_button("Accéder à mon portefeuille")
-        
-        if submit:
-            if nom_saisi.strip() != "":
-                with st.spinner("Chargement de vos données..."):
-                    st.session_state.current_user = nom_saisi.strip()
-                    p, v = charger_donnees_gsheet(nom_saisi.strip())
-                    st.session_state.portefeuille, st.session_state.ventes = p, v
-                    st.rerun()
-            else:
-                st.error("L'identifiant ne peut pas être vide.")
-    st.stop() # Arrête l'affichage ici tant qu'on n'est pas connecté
-
-# --- INTERFACE PRINCIPALE (AFFICHEE UNIQUEMENT SI CONNECTE) ---
-
-# Sidebar pour la déconnexion
+# --- SIDEBAR : PROFILS ---
 with st.sidebar:
-    st.write(f"👤 Utilisateur : **{st.session_state.current_user}**")
-    if st.button("🚪 Déconnexion"):
-        st.session_state.current_user = None
+    st.header("👤 COMPTE")
+    nom_saisi = st.text_input("Nom d'utilisateur :", value=st.session_state.current_user)
+    if st.button("Charger mon Profil"):
+        st.session_state.current_user = nom_saisi
+        p, v = charger_donnees_gsheet(nom_saisi)
+        st.session_state.portefeuille, st.session_state.ventes = p, v
         st.rerun()
+    st.write(f"Utilisateur actuel : **{st.session_state.current_user}**")
 
-st.title(f"📊 Portfolio de {st.session_state.current_user}")
+# --- INTERFACE PRINCIPALE ---
+st.title(f"📊 Portfolio Tracker Pro - {st.session_state.current_user}")
 tabs = st.tabs(["📊 Analyse", "💼 Positions", "💸 Ventes", "📈 Benchmark"])
 
 # --- ONGLET ANALYSE ---
@@ -189,4 +177,4 @@ with tabs[3]:
             fig, ax = plt.subplots(figsize=(10, 6)); ax.plot(perc_w, color="#f7768e", label="MSCI World")
             ax.plot(p_excl, color="#7aa2f7", linestyle="--", label="Positions (Latent)")
             ax.plot(p_incl, color="#9ece6a", linewidth=2, label="Bilan Global"); ax.legend(); st.pyplot(fig)
-        except Exception: st.error("Erreur lors du calcul du benchmark.")
+        except: st.error("Erreur lors du calcul du benchmark.")
