@@ -69,51 +69,70 @@ with tabs[0]:
             sauvegarder_donnees(st.session_state.portefeuille, st.session_state.ventes)
             st.rerun()
 
-# --- ONGLET POSITIONS (Liste) ---
+# --- ONGLET POSITIONS (Avec bouton Supprimer) ---
 with tabs[1]:
     st.subheader("Positions Actuelles")
     data_list = []
     lat_totale, investi_total = 0, 0
     
-    for t, i in st.session_state.portefeuille.items():
+    portefeuille_actuel = list(st.session_state.portefeuille.items())
+    
+    for t, i in portefeuille_actuel:
         try:
             p_live = yf.Ticker(t).fast_info['last_price']
             val_actuelle, val_achat = p_live * i['qty'], i['pru'] * i['qty']
             pf = val_actuelle - val_achat
             lat_totale += pf; investi_total += val_achat
             
-            data_list.append({
-                "Icon": ICONES.get(t, "📈"), "Ticker": t, "Prix Live": f"{p_live:.2f}€",
-                "PRU": f"{i['pru']:.2f}€", "Qté": i['qty'], "Valeur": f"{val_actuelle:.2f}€",
-                "Perf %": f"{(p_live/i['pru']-1)*100:+.2f}%", "Perf €": f"{pf:+.2f}€"
-            })
+            # Affichage ligne par ligne avec bouton de suppression
+            col_info, col_del = st.columns([5, 1])
+            ico = ICONES.get(t, "📈")
+            col_info.write(f"{ico} **{t}** | Live: {p_live:.2f}€ | PRU: {i['pru']:.2f}€ | Qté: {i['qty']} | Val: {val_actuelle:.2f}€ | Perf: {pf:+.2f}€ ({(p_live/i['pru']-1)*100:+.2f}%)")
+            
+            if col_del.button("🗑️", key=f"del_{t}"):
+                del st.session_state.portefeuille[t]
+                sauvegarder_donnees(st.session_state.portefeuille, st.session_state.ventes)
+                st.rerun()
         except: continue
     
-    if data_list:
-        st.table(pd.DataFrame(data_list))
+    if st.session_state.portefeuille:
+        st.divider()
         lat_perc = (lat_totale / investi_total * 100) if investi_total > 0 else 0
-        st.metric("Plus-Value Latente", f"{lat_totale:+.2f} €", f"{lat_perc:+.2f}%")
+        st.metric("Plus-Value Latente Totale", f"{lat_totale:+.2f} €", f"{lat_perc:+.2f}%")
 
-# --- ONGLET VENTES ---
+# --- ONGLET VENTES (Avec bouton Annuler) ---
 with tabs[2]:
     st.subheader("ENREGISTRER UNE VENTE")
-    v_t = st.selectbox("Action à vendre", list(st.session_state.portefeuille.keys()))
-    col_v1, col_v2, col_v3 = st.columns(3)
-    with col_v1: pv = st.number_input("Prix Vente (€)", min_value=0.0)
-    with col_v2: qv = st.number_input("Qté à vendre", min_value=0.0)
-    with col_v3: dv = st.date_input("Date Vente", datetime.now())
-    
-    if st.button("VENDRE"):
-        if v_t in st.session_state.portefeuille and qv <= st.session_state.portefeuille[v_t]['qty']:
-            pa_v = st.session_state.portefeuille[v_t]['pru']
-            st.session_state.ventes.append({'ticker': v_t, 'gain': (pv - pa_v) * qv, 'date': str(dv), 'pru_achat': pa_v, 'qty_vendu': qv})
-            st.session_state.portefeuille[v_t]['qty'] -= qv
-            if st.session_state.portefeuille[v_t]['qty'] <= 0: del st.session_state.portefeuille[v_t]
+    if st.session_state.portefeuille:
+        v_t = st.selectbox("Action à vendre", list(st.session_state.portefeuille.keys()))
+        col_v1, col_v2, col_v3 = st.columns(3)
+        with col_v1: pv = st.number_input("Prix Vente (€)", min_value=0.0)
+        with col_v2: qv = st.number_input("Qté à vendre", min_value=0.0)
+        with col_v3: dv = st.date_input("Date Vente", datetime.now())
+        
+        if st.button("VENDRE"):
+            if v_t in st.session_state.portefeuille and qv <= st.session_state.portefeuille[v_t]['qty']:
+                pa_v = st.session_state.portefeuille[v_t]['pru']
+                st.session_state.ventes.append({'ticker': v_t, 'gain': (pv - pa_v) * qv, 'date': str(dv), 'pru_achat': pa_v, 'qty_vendu': qv})
+                st.session_state.portefeuille[v_t]['qty'] -= qv
+                if st.session_state.portefeuille[v_t]['qty'] <= 0: del st.session_state.portefeuille[v_t]
+                sauvegarder_donnees(st.session_state.portefeuille, st.session_state.ventes)
+                st.rerun()
+
+    st.divider()
+    st.subheader("Historique des Ventes (Annulation possible)")
+    for idx, v in enumerate(st.session_state.ventes):
+        col_v_info, col_v_undo = st.columns([5, 2])
+        col_v_info.write(f"**{v['ticker']}** | Date: {v['date']} | Qté: {v['qty_vendu']} | Gain: {v['gain']:+.2f}€")
+        
+        if col_v_undo.button("Annuler Vente", key=f"undo_{idx}"):
+            v_vendu = st.session_state.ventes.pop(idx)
+            if v_vendu['ticker'] in st.session_state.portefeuille:
+                st.session_state.portefeuille[v_vendu['ticker']]['qty'] += v_vendu['qty_vendu']
+            else:
+                st.session_state.portefeuille[v_vendu['ticker']] = {'pru': v_vendu['pru_achat'], 'qty': v_vendu['qty_vendu'], 'date': v_vendu['date']}
             sauvegarder_donnees(st.session_state.portefeuille, st.session_state.ventes)
             st.rerun()
-
-    st.write("Historique des Ventes")
-    st.dataframe(pd.DataFrame(st.session_state.ventes))
 
 # --- ONGLET BENCHMARK ---
 with tabs[3]:
