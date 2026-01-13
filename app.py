@@ -38,23 +38,26 @@ def charger_donnees_gsheet(user):
 
 def sauvegarder_donnees_gsheet(user, portefeuille, ventes):
     try:
-        # Tentative de lecture
-        df = conn.read(worksheet="Donnees", ttl=0)
-        
+        # 1. Lire les données existantes pour ne pas écraser les autres utilisateurs
+        try:
+            df = conn.read(worksheet="Donnees", ttl=0)
+        except:
+            df = pd.DataFrame(columns=["username", "json_data"])
+
+        # 2. Préparer le JSON
         new_json = json.dumps({"portefeuille": portefeuille, "ventes": ventes})
         
+        # 3. Mise à jour ou ajout
         if user.lower() in df['username'].values:
             df.loc[df['username'] == user.lower(), 'json_data'] = new_json
         else:
             new_line = pd.DataFrame([{"username": user.lower(), "json_data": new_json}])
             df = pd.concat([df, new_line], ignore_index=True)
         
-        # Tentative d'écriture
+        # 4. Envoi vers Google Sheets
         conn.update(worksheet="Donnees", data=df)
-        st.success("✅ Données synchronisées avec Google Sheets !") # Message de succès
     except Exception as e:
-        # Ceci affichera l'erreur réelle en rouge sur votre écran
-        st.error(f"❌ Erreur Google Sheets : {e}")
+        st.error(f"Erreur de sauvegarde : {e}")
 
 # --- INITIALISATION DE LA SESSION ---
 st.set_page_config(page_title="Portfolio Tracker Pro", layout="wide")
