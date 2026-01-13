@@ -165,28 +165,75 @@ with tabs[2]:
             st.rerun()
 
 # --- ONGLET BENCHMARK ---
+# --- ONGLET BENCHMARK (Version 3 Lignes Fidèle à l'originale) ---
 with tabs[3]:
-    if st.button("📊 CALCULER LES PERFORMANCES"):
-        try:
-            plt.style.use('dark_background')
-            debut_annee = "2026-01-01"
-            bench_df = yf.download(BENCHMARK_TICKER, start=debut_annee)
-            bench_close = bench_df['Close'].squeeze()
-            perc_w = ((bench_close / bench_close.iloc[0]) - 1) * 100
-            df_valeur_port = pd.Series(0.0, index=bench_close.index)
-            val_init = 0
-            for t, info in st.session_state.portefeuille.items():
-                asset_data = yf.download(t, start=debut_annee)['Close'].squeeze()
-                asset_aligned = asset_data.reindex(bench_close.index).ffill().bfill()
-                df_valeur_port += (asset_aligned * info['qty'])
-                val_init += (asset_aligned.iloc[0] * info['qty'])
-            df_gains_ventes = pd.Series(0.0, index=bench_close.index)
-            for v in st.session_state.ventes:
-                if v['date'] >= debut_annee:
-                    df_gains_ventes.loc[df_gains_ventes.index >= pd.to_datetime(v['date'])] += v['gain']
-            p_excl = ((df_valeur_port / val_init) - 1) * 100
-            p_incl = (((df_valeur_port + df_gains_ventes) / val_init) - 1) * 100
-            fig, ax = plt.subplots(figsize=(10, 6)); ax.plot(perc_w, color="#f7768e", label="MSCI World")
-            ax.plot(p_excl, color="#7aa2f7", linestyle="--", label="Positions (Latent)")
-            ax.plot(p_incl, color="#9ece6a", linewidth=2, label="Bilan Global"); ax.legend(); st.pyplot(fig)
-        except Exception: st.error("Erreur lors du calcul du benchmark.")
+    st.subheader("📊 Comparaison des Performances Réelles")
+    
+    if st.button("📈 CALCULER ET TRACER LES PERFORMANCES"):
+        if not st.session_state.portefeuille:
+            st.warning("Veuillez ajouter des positions pour générer le benchmark.")
+        else:
+            with st.spinner("Récupération des données historiques et calcul..."):
+                try:
+                    plt.style.use('dark_background')
+                    # On définit le début de l'année en cours (2026 selon votre contexte)
+                    debut_annee = "2026-01-01"
+                    
+                    # 1. Téléchargement du Benchmark (MSCI World)
+                    bench_df = yf.download(BENCHMARK_TICKER, start=debut_annee)
+                    bench_close = bench_df['Close'].squeeze()
+                    # Calcul de la progression du World en %
+                    perc_w = ((bench_close / bench_close.iloc[0]) - 1) * 100
+
+                    # 2. Calcul de la valeur du portefeuille (Positions Actuelles)
+                    df_valeur_port = pd.Series(0.0, index=bench_close.index)
+                    valeur_initiale_janvier = 0
+                    
+                    for t, info in st.session_state.portefeuille.items():
+                        asset_data = yf.download(t, start=debut_annee)['Close'].squeeze()
+                        # Alignement des dates avec le benchmark (ffill pour les jours fériés)
+                        asset_aligned = asset_data.reindex(bench_close.index).ffill().bfill()
+                        df_valeur_port += (asset_aligned * info['qty'])
+                        valeur_initiale_janvier += (asset_aligned.iloc[0] * info['qty'])
+
+                    # 3. Calcul de l'impact des ventes réalisées
+                    df_gains_ventes = pd.Series(0.0, index=bench_close.index)
+                    for v in st.session_state.ventes:
+                        if v['date'] >= debut_annee:
+                            date_v = pd.to_datetime(v['date'])
+                            # On ajoute le gain à partir de la date de la vente
+                            mask = df_gains_ventes.index >= date_v
+                            df_gains_ventes.loc[mask] += v['gain']
+
+                    # Calcul des deux lignes de performance du portefeuille
+                    port_perf_excl = ((df_valeur_port / valeur_initiale_janvier) - 1) * 100
+                    port_perf_incl = (((df_valeur_port + df_gains_ventes) / valeur_initiale_janvier) - 1) * 100
+
+                    # Affichage des métriques chiffrées
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Perf. Positions (Excl. Ventes)", f"{port_perf_excl.iloc[-1]:+.2f}%")
+                    c2.metric("Bilan Global (Incl. Ventes)", f"{port_perf_incl.iloc[-1]:+.2f}%", delta_color="normal")
+                    c3.metric("MSCI World", f"{perc_w.iloc[-1]:+.2f}%")
+
+                    # Création du graphique Matplotlib
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    fig.patch.set_facecolor('#1a1b26')
+                    ax.set_facecolor('#1a1b26')
+                    
+                    # Ligne 1 : MSCI World
+                    ax.plot(perc_w, color="#f7768e", label="MSCI World (Benchmark)", alpha=0.6)
+                    # Ligne 2 : Portefeuille sans les ventes (pointillé)
+                    ax.plot(port_perf_excl, color="#7aa2f7", label="Positions Actuelles (YTD)", linestyle="--")
+                    # Ligne 3 : Bilan global avec ventes (épaisse)
+                    ax.plot(port_perf_incl, color="#9ece6a", label="Bilan Global (Ventes + Latent YTD)", linewidth=2.5)
+
+                    ax.set_title(f"Comparaison YTD 2026 (Base 0% au 01/01)")
+                    ax.axhline(y=0, color='white', alpha=0.3, linewidth=1)
+                    ax.set_ylabel("Variation (%)")
+                    ax.legend()
+                    ax.grid(True, alpha=0.1)
+                    
+                    st.pyplot(fig)
+                    
+                except Exception as e:
+                    st.error(f"Erreur lors du calcul du benchmark : {e}")
