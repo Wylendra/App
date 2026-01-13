@@ -64,26 +64,47 @@ with tabs[0]:
         st.rerun()
 
 # --- ONGLET POSITIONS (Avec Suppression) ---
+# --- ONGLET POSITIONS (Version avec Quantité incluse) ---
 with tabs[1]:
     st.subheader("Positions Actuelles")
     data_list = []
     lat_totale, investi_total = 0, 0
-    for t in list(st.session_state.portefeuille.keys()):
+    
+    # On itère sur une copie des clés pour éviter les erreurs pendant la suppression
+    portefeuille_keys = list(st.session_state.portefeuille.keys())
+    
+    for t in portefeuille_keys:
         try:
             i = st.session_state.portefeuille[t]
             p_live = yf.Ticker(t).fast_info['last_price']
             val_actuelle, val_achat = p_live * i['qty'], i['pru'] * i['qty']
             pf = val_actuelle - val_achat
-            lat_totale += pf; investi_total += val_achat
+            lat_totale += pf
+            investi_total += val_achat
+            
+            # Mise en page sur deux colonnes pour le téléphone
             col_info, col_del = st.columns([5, 1])
-            col_info.write(f"{ICONES.get(t, '📈')} **{t}** | Live: {p_live:.2f}€ | PRU: {i['pru']:.2f}€ | Val: {val_actuelle:.2f}€ | Perf: {pf:+.2f}€")
+            
+            # AJOUT : On inclut i['qty'] dans le texte d'affichage
+            col_info.write(
+                f"{ICONES.get(t, '📈')} **{t}** | "
+                f"**Qté: {i['qty']}** | "
+                f"Live: {p_live:.2f}€ | "
+                f"PRU: {i['pru']:.2f}€ | "
+                f"Val: {val_actuelle:.2f}€ | "
+                f"Perf: {pf:+.2f}€"
+            )
+            
             if col_del.button("🗑️", key=f"del_{t}"):
                 del st.session_state.portefeuille[t]
                 sauvegarder_donnees(st.session_state.portefeuille, st.session_state.ventes)
                 st.rerun()
-        except: continue
+        except:
+            continue
+            
     if investi_total > 0:
-        st.metric("Plus-Value Latente", f"{lat_totale:+.2f} €", f"{(lat_totale/investi_total*100):+.2f}%")
+        st.divider()
+        st.metric("Plus-Value Latente Totale", f"{lat_totale:+.2f} €", f"{(lat_totale/investi_total*100):+.2f}%")
 
 # --- ONGLET VENTES (Avec Annulation) ---
 with tabs[2]:
